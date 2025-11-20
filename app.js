@@ -14,36 +14,52 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 /* =========================================================================
    1) UTILITIES & PERSISTENCE
    ======================================================================= */
-const $  = (sel, node = document) => node.querySelector(sel);
+
+// DOM helpers
+const $ = (sel, node = document) => node.querySelector(sel);
 const $$ = (sel, node = document) => [...node.querySelectorAll(sel)];
 
+// UUID helper
 const uuid = () =>
-  ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
-    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+    (c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & 15) >> (c / 4)).toString(16)
   );
 
-function saveLS(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
-function loadLS(key, fallback=null){
-  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
-  catch { return fallback; }
+// LocalStorage helpers
+function saveLS(key, val) {
+  localStorage.setItem(key, JSON.stringify(val));
 }
 
-//////////////////////////// FOR DEVELOPMENT ////////////////////////////
-// ---- DEV OVERRIDES via URL ?load=high|low&interest=high|low&cat=Backpacks
+function loadLS(key, fallback = null) {
+  try {
+    return JSON.parse(localStorage.getItem(key)) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
 
-/* ==== DEV PARSER + RESET (MUSS VOR loadLS stehen!) ===================== */
+/* =========================================================================
+   1.1) DEVELOPMENT FLAGS (URL PARAMS) & RESET
+   ======================================================================= */
+
+// DEV OVERRIDES via URL:
+// ?load=high|low&interest=high|low&cat=Backpacks&cond=...&reset=1
+
+// DEV parser for query params + reset flag
 const DEV = (() => {
   const sp = new URLSearchParams(location.search);
-  const normHL = v => (v && /^(high|low)$/i.test(v)) ? v.toLowerCase() : null;
+  const normHL = v => (v && /^(high|low)$/i.test(v) ? v.toLowerCase() : null);
+
   return {
-    load: normHL(sp.get('load')),                  // 'high' | 'low' | null
-    interest: normHL(sp.get('interest')),          // 'high' | 'low' | null
-    code: sp.get('cond') || null,                  // Badge-Code (optional)
-    cat: sp.get('cat') || null,                    // Kategorie-Override (optional)
-    reset: /^(1|true|yes)$/i.test(sp.get('reset') || '')  // <-- Reset-Flag
+    load: normHL(sp.get('load')),                          // 'high' | 'low' | null
+    interest: normHL(sp.get('interest')),                  // 'high' | 'low' | null
+    code: sp.get('cond') || null,                          // condition code override (optional)
+    cat: sp.get('cat') || null,                            // category override (optional)
+    reset: /^(1|true|yes)$/i.test(sp.get('reset') || '')   // reset flag
   };
 })();
 
+// Clear all experiment-related local state
 function nukeLocalState() {
   try {
     localStorage.removeItem('exp_state');
@@ -53,28 +69,28 @@ function nukeLocalState() {
   } catch {}
 }
 
-// Beim Bootstrap GANZ am Anfang (noch vor loadLS/ensureParticipant):
-(function maybeReset(){
+// Reset state at bootstrap if ?reset=1 etc. is present
+(function maybeReset() {
   if (DEV.reset) {
     nukeLocalState();
-    // Query-Param ?reset=… entfernen, um Endlos-Reload zu vermeiden
+
+    // Remove ?reset parameter to avoid endless reload loops
     const url = new URL(location.href);
     url.searchParams.delete('reset');
     location.replace(url.toString());
   }
 })();
 
-
-
 /* =========================================================================
    2) GLOBAL STATE
    ======================================================================= */
+
 let state = loadLS('exp_state', {
   session_id: uuid(),
   participant_id: null,
   started_at: new Date().toISOString(),
   pageIndex: 0,
-  condition: {},                 // { code, interest, load }
+  condition: {},                // { code, interest, load }
   assignedCategory: null,
   mouse_buffer: [],
   answers: {
@@ -87,50 +103,66 @@ let state = loadLS('exp_state', {
       age: null,
       gender: null,
       education_code: null,
-      education_other: "",
+      education_other: '',
       employment_code: null,
-      employment_other: ""
+      employment_other: ''
     }
   }
 });
 
-// Ensure nested shapes exist (handles migrations / older LS versions)
+// Ensure nested state structures exist (helps with migrations / older LS versions)
 function ensureStateShape() {
   state.answers = state.answers || {};
   state.answers.task1 = state.answers.task1 || {};
-  state.answers.task2 = state.answers.task2 || { selected_prod_id: null, selected_prod_name: null };
-  state.answers.paas  = (state.answers.paas ?? null);
-  state.answers.nrq   = state.answers.nrq || {};
-  state.answers.pies  = state.answers.pies || {};
-  state.answers.ecm   = state.answers.ecm || {}; 
-  state.answers.demo  = state.answers.demo || {
-    age: null, gender: null,
-    education_code: null, education_other: "",
-    employment_code: null, employment_other: ""
+  state.answers.task2 = state.answers.task2 || {
+    selected_prod_id: null,
+    selected_prod_name: null
   };
+  state.answers.paas = state.answers.paas ?? null;
+  state.answers.nrq = state.answers.nrq || {};
+  state.answers.pies = state.answers.pies || {};
+  state.answers.ecm = state.answers.ecm || {};
+  state.answers.demo =
+    state.answers.demo || {
+      age: null,
+      gender: null,
+      education_code: null,
+      education_other: '',
+      employment_code: null,
+      employment_other: ''
+    };
+
   persist();
 }
+
 ensureStateShape();
 
-function persist(){ saveLS('exp_state', state); }
+function persist() {
+  saveLS('exp_state', state);
+}
 
 /* =========================================================================
-   3) SUPABASE: IDENTITY + PARTICIPANT ROW
+   3) SUPABASE: IDENTITY & PARTICIPANT ROW
    ======================================================================= */
+
 const STORAGE_KEYS = {
-  pid:  'participant_id',
+  pid: 'participant_id',
   cond: 'participant_condition'
 };
 
 /**
- * Ensure we have a valid participant row. Creates via RPC once and caches.
+ * Ensure we have a valid participant row.
+ * Creates a participant via RPC once and caches the ID & condition.
  * Returns: { participant_id, condition }
  */
 async function ensureParticipant() {
   let pid = localStorage.getItem(STORAGE_KEYS.pid);
 
   async function createOnServer(withPid) {
-    const { data, error } = await supabase.rpc('create_participant', { p_participant_id: withPid });
+    const { data, error } = await supabase.rpc('create_participant', {
+      p_participant_id: withPid
+    });
+
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
 
@@ -138,80 +170,101 @@ async function ensureParticipant() {
     localStorage.setItem(STORAGE_KEYS.cond, row.condition);
 
     state.participant_id = withPid;
-    state.condition = { code: row.condition, interest: row.interest, load: row.load };
+    state.condition = {
+      code: row.condition,
+      interest: row.interest,
+      load: row.load
+    };
     saveLS('exp_state', state);
 
     return { participant_id: withPid, condition: row.condition };
   }
 
-  // First run → create
+  // First run: create new participant row
   if (!pid) {
     pid = crypto.randomUUID();
     return createOnServer(pid);
   }
 
-  // Existing pid → verify row exists
+  // Existing pid: verify corresponding row exists
   const { data: partRow, error: selErr } = await supabase
     .from('participants')
     .select('condition, interest, load')
     .eq('participant_id', pid)
     .maybeSingle();
 
-  // If row missing → recreate with same pid
+  // If the row is missing, recreate it while keeping the same pid
   if (!partRow || selErr?.code === 'PGRST116') {
     localStorage.removeItem('session_saved');
     return createOnServer(pid);
   }
 
-  // Rehydrate state/cache
+  // Rehydrate state + cache
   state.participant_id = pid;
-  state.condition = { code: partRow.condition, interest: partRow.interest, load: partRow.load };
+  state.condition = {
+    code: partRow.condition,
+    interest: partRow.interest,
+    load: partRow.load
+  };
   localStorage.setItem(STORAGE_KEYS.cond, partRow.condition);
   saveLS('exp_state', state);
 
-  ////////////////////////////////////////////////////////////////////////////////////
-  // ---- DEV OVERRIDE: load / interest / code / cat aus URL setzen (nur Dev)
-try {
-  if (DEV.load || DEV.interest || DEV.code) {
-    const up = {
-      load: DEV.load || partRow.load,
-      interest: DEV.interest || partRow.interest,
-      condition: DEV.code || `dev:${(DEV.interest || partRow.interest) ?? '-'}-${(DEV.load || partRow.load) ?? '-'}`
-    };
-    const { data: updRow, error: updErr } = await supabase
-      .from('participants')
-      .update(up)
-      .eq('participant_id', pid)
-      .select('condition, interest, load')
-      .maybeSingle();
+  /* -----------------------------------------------------------------------
+     DEV OVERRIDE BLOCK: override load / interest / condition / category
+     using URL parameters (development only)
+     ---------------------------------------------------------------------- */
+  try {
+    // Override condition (load/interest/code) if DEV flags are set
+    if (DEV.load || DEV.interest || DEV.code) {
+      const up = {
+        load: DEV.load || partRow.load,
+        interest: DEV.interest || partRow.interest,
+        condition:
+          DEV.code ||
+          `dev:${(DEV.interest || partRow.interest) ?? '-'}-${
+            (DEV.load || partRow.load) ?? '-'
+          }`
+      };
 
-    if (!updErr && updRow) {
-      state.condition = { code: updRow.condition, interest: updRow.interest, load: updRow.load };
-      localStorage.setItem(STORAGE_KEYS.cond, updRow.condition);
-      saveLS('exp_state', state);
-      console.log('[DEV] Forced condition:', state.condition);
-    } else if (updErr) {
-      console.warn('[DEV] Condition override failed:', updErr);
+      const { data: updRow, error: updErr } = await supabase
+        .from('participants')
+        .update(up)
+        .eq('participant_id', pid)
+        .select('condition, interest, load')
+        .maybeSingle();
+
+      if (!updErr && updRow) {
+        state.condition = {
+          code: updRow.condition,
+          interest: updRow.interest,
+          load: updRow.load
+        };
+        localStorage.setItem(STORAGE_KEYS.cond, updRow.condition);
+        saveLS('exp_state', state);
+        console.log('[DEV] Forced condition:', state.condition);
+      } else if (updErr) {
+        console.warn('[DEV] Condition override failed:', updErr);
+      }
     }
-  }
 
-  // Optional: Kategorie für Task 2 überschreiben (?cat=Backpacks etc.)
-  if (DEV.cat) {
-    state.assignedCategory = normalizeCategoryKey(DEV.cat);
-    saveLS('exp_state', state);
-    console.log('[DEV] Forced category:', state.assignedCategory);
+    // Optional: override assigned category for Task 2 (?cat=Backpacks etc.)
+    if (DEV.cat) {
+      // normalizeCategoryKey is assumed to exist globally or elsewhere
+      state.assignedCategory = normalizeCategoryKey(DEV.cat);
+      saveLS('exp_state', state);
+      console.log('[DEV] Forced category:', state.assignedCategory);
+    }
+  } catch (e) {
+    console.warn('[DEV] Override block error:', e);
   }
-} catch (e) {
-  console.warn('[DEV] Override block error:', e);
-}
-////////////////////////////////////////////////////////////////////////////////////////////////
 
   return { participant_id: pid, condition: partRow.condition };
 }
 
 /* =========================================================================
-   4) TASK 1: CATEGORY MAP + SAVE HELPERS
+   4) TASK 1: CATEGORIES & SAVE HELPERS
    ======================================================================= */
+
 const TASK1_CATEGORIES = [
   'Detergents',
   'Smartwatches',
@@ -222,18 +275,18 @@ const TASK1_CATEGORIES = [
 ];
 
 const T1_COLS = {
-  'Detergent': 't1_detergent',
-  'Detergents': 't1_detergent',
-  'Smartwatch': 't1_smartwatch',
-  'Smartwatches': 't1_smartwatch',
-  'Speaker': 't1_speaker',
-  'Speakers': 't1_speaker',
+  Detergent: 't1_detergent',
+  Detergents: 't1_detergent',
+  Smartwatch: 't1_smartwatch',
+  Smartwatches: 't1_smartwatch',
+  Speaker: 't1_speaker',
+  Speakers: 't1_speaker',
   'Water Bottle': 't1_bottle',
   'Water Bottles': 't1_bottle',
   'Electric Toothbrush': 't1_toothbrush',
   'Electric Toothbrushes': 't1_toothbrush',
-  'Backpack': 't1_backpack',
-  'Backpacks': 't1_backpack'
+  Backpack: 't1_backpack',
+  Backpacks: 't1_backpack'
 };
 
 function t1ColumnFromCategory(label) {
@@ -255,7 +308,9 @@ async function saveTask1Ratings(ratingsByColumn) {
   const { data, error, status, statusText } = await supabase
     .from('participants')
     .upsert(payload, { onConflict: 'participant_id' })
-    .select('participant_id, t1_detergent, t1_smartwatch, t1_speaker, t1_bottle, t1_toothbrush, t1_backpack')
+    .select(
+      'participant_id, t1_detergent, t1_smartwatch, t1_speaker, t1_bottle, t1_toothbrush, t1_backpack'
+    )
     .maybeSingle();
 
   console.log('[Task1 UPSERT] payload:', payload);
@@ -265,22 +320,25 @@ async function saveTask1Ratings(ratingsByColumn) {
     console.error('[Task1 UPSERT] error:', error);
     throw new Error(error.message || JSON.stringify(error));
   }
+
   console.log('[Task1 UPSERT] saved row:', data);
   return data;
 }
 
 /* --- Task 1 control handles (used in render/beforeNext) --- */
+
 let T1_CTRL = null;
 let T1_SAVE_TIMER = null;
 let T1_CONTAINER = null;
 let T1_LAST_SIG = null;
 
-/** Collect Task-1 ratings from the current container */
-/** Collect Task-1 ratings from the (table-based) container */
+/**
+ * Collect Task 1 ratings from the table-based container.
+ * Expects rows like: <tr data-cat="Detergents">...</tr>
+ */
 function collectTask1RatingsFrom(container) {
   if (!container) throw new Error('collectTask1RatingsFrom: no container');
 
-  // new: rows are <tr data-cat="Detergents"> … </tr>
   const rows = [...container.querySelectorAll('tr[data-cat]')];
   const ratings = {};
   const missing = [];
@@ -305,6 +363,8 @@ function collectTask1RatingsFrom(container) {
 /* =========================================================================
    5) RANDOMIZATION HELPERS (Task 2)
    ======================================================================= */
+
+// Deterministic hash from string → integer
 function hashStringToInt(str) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < str.length; i++) {
@@ -314,15 +374,17 @@ function hashStringToInt(str) {
   return h >>> 0;
 }
 
+// Pseudo-random generator (Mulberry32)
 function mulberry32(seed) {
-  return function() {
-    let t = seed += 0x6D2B79F5;
+  return function () {
+    let t = (seed += 0x6d2b79f5);
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
+// Fisher–Yates shuffle with custom RNG
 function shuffleWithRNG(arr, rng) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -332,7 +394,7 @@ function shuffleWithRNG(arr, rng) {
   return a;
 }
 
-// --- Task 2 selection saver (used by both render and beforeNext)
+// Task 2: persist selected product
 async function saveTask2SelectionOrThrow() {
   const name = (state.answers?.task2?.selected_prod_name || '').trim();
   if (!name) throw new Error('NO_SELECTION');
@@ -343,16 +405,24 @@ async function saveTask2SelectionOrThrow() {
       { participant_id: state.participant_id, selected_product: name },
       { onConflict: 'participant_id' }
     );
+
   if (upErr) throw upErr;
 
-  try { await flushMouseEvents('task-2'); } catch {}
-  try { stopMouseTracking(); } catch {}
+  try {
+    await flushMouseEvents('task-2');
+  } catch {}
+
+  try {
+    stopMouseTracking();
+  } catch {}
 }
 
-
 /* =========================================================================
-   6) QUESTIONNAIRE CONSTANTS
+   6) QUESTIONNAIRE CONSTANTS & HELPERS
    ======================================================================= */
+
+/* --- PAAS labels --- */
+
 const PAAS_LABELS = {
   1: 'very, very low mental effort',
   2: 'very low mental effort',
@@ -365,14 +435,29 @@ const PAAS_LABELS = {
   9: 'very, very high mental effort'
 };
 
+/* --- NRQ items --- */
+
 const NRQ_ITEMS = [
-  { key: 'ICL1', text: 'For this task, many things needed to be kept in mind simultaneously.' },
+  {
+    key: 'ICL1',
+    text: 'For this task, many things needed to be kept in mind simultaneously.'
+  },
   { key: 'ICL2', text: 'This task was very complex.' },
-  { key: 'ECL1', text: 'During this task, it was exhausting to find the important information.' },
-  { key: 'ECL2', text: 'The design of this task was very inconvenient for learning.' },
-  { key: 'ECL3', text: 'During this task, it was difficult to recognize and link the crucial information.' }
+  {
+    key: 'ECL1',
+    text: 'During this task, it was exhausting to find the important information.'
+  },
+  {
+    key: 'ECL2',
+    text: 'The design of this task was very inconvenient for learning.'
+  },
+  {
+    key: 'ECL3',
+    text: 'During this task, it was difficult to recognize and link the crucial information.'
+  }
 ];
 
+// Simple in-place shuffle using Math.random
 function shuffleInPlace(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -381,37 +466,42 @@ function shuffleInPlace(arr) {
   return arr;
 }
 
+/* --- PIES items --- */
+
 const PIES_ITEMS = [
-  { key: 'PIES1',  t: (pp, ps) => `I am very interested in ${pp}.` },
-  { key: 'PIES2',  t: (pp, ps) => `${capFirst(pp)} are not very important to me.` },
-  { key: 'PIES3',  t: (pp, ps) => `I never think about ${pp}.` },
-  { key: 'PIES4',  t: (pp, ps) => `In choosing a ${ps}, I would look for some specific features or options.` },
-  { key: 'PIES5',  t: (pp, ps) => `If I chose a new ${ps}, I would investigate the available choices in depth.` },
-  { key: 'PIES6',  t: (pp, ps) => `Some ${pp} are clearly better than others.` },
-  { key: 'PIES7',  t: (pp, ps) => `If I were choosing a ${ps}, I would wish to learn about the available options in detail.` },
-  { key: 'PIES8',  t: (pp, ps) => `When people see someone’s ${ps}, they form an opinion of that person.` },
-  { key: 'PIES9',  t: (pp, ps) => `A ${ps} expresses a lot about the person who owns it.` },
+  { key: 'PIES1', t: (pp, ps) => `I am very interested in ${pp}.` },
+  { key: 'PIES2', t: (pp, ps) => `${capFirst(pp)} are not very important to me.` },
+  { key: 'PIES3', t: (pp, ps) => `I never think about ${pp}.` },
+  { key: 'PIES4', t: (pp, ps) => `In choosing a ${ps}, I would look for some specific features or options.`},
+  { key: 'PIES5', t: (pp, ps) => `If I chose a new ${ps}, I would investigate the available choices in depth.`},
+  { key: 'PIES6', t: (pp, ps) => `Some ${pp} are clearly better than others.` },
+  { key: 'PIES7', t: (pp, ps) => `If I were choosing a ${ps}, I would wish to learn about the available options in detail.`},
+  { key: 'PIES8', t: (pp, ps) => `When people see someone’s ${ps}, they form an opinion of that person.`},
+  { key: 'PIES9', t: (pp, ps) => `A ${ps} expresses a lot about the person who owns it.` },
   { key: 'PIES10', t: (pp, ps) => `You can learn a lot about a person by seeing their ${ps}.` },
-  { key: 'PIES11', t: (pp, ps) => `It is important to choose a ${ps} that matches one’s image.` },
-  { key: 'PIES_AC', t: () => 'Please select "Strongly agree" (5).' } // attention check
+  { key: 'PIES11', t: (pp, ps) => `It is important to choose a ${ps} that matches one’s image.`},
+  { key: 'PIES_AC', t: () => 'Please select "Strongly agree" (5).'} // attention check
 ];
 
 function piesNounsForCategory(cat) {
   switch ((cat || '').toLowerCase()) {
-    case 'detergent':            return { pp: 'detergents',           ps: 'detergent' };
-    case 'smartwatch':           return { pp: 'smartwatches',         ps: 'smartwatch' };
-    case 'speaker':              return { pp: 'speaker',              ps: 'speaker' };
-    case 'water bottle':         return { pp: 'water bottles',        ps: 'water bottle' };
-    case 'electric toothbrush':  return { pp: 'electric toothbrushes',ps: 'electric toothbrush' };
-    case 'backpack':             return { pp: 'backpacks',            ps: 'backpack' };
-    default:                     return { pp: 'products',             ps: 'product' };
+    case 'detergent': return { pp: 'detergents', ps: 'detergent' };
+    case 'smartwatch': return { pp: 'smartwatches', ps: 'smartwatch' };
+    case 'speaker': return { pp: 'speaker', ps: 'speaker' };
+    case 'water bottle': return { pp: 'water bottles', ps: 'water bottle' };
+    case 'electric toothbrush': return { pp: 'electric toothbrushes', ps: 'electric toothbrush' };
+    case 'backpack': return { pp: 'backpacks', ps: 'backpack' };
+    default: return { pp: 'products', ps: 'product' };
   }
 }
 
-// ===== ECM items =====
-// Scales: CI, PU, C = 7-pt Likert (1=Strongly disagree … 7=Strongly agree)
+/* --- ECM items & helpers --- */
+
+// Scales:
+// CI, PU, C = 7-pt Likert (1 = Strongly disagree … 7 = Strongly agree)
 // Satisfaction = 7-pt semantic differentials
-const ECM_HEADERS = [1,2,3,4,5,6,7];
+const ECM_HEADERS = [1, 2, 3, 4, 5, 6, 7];
+
 const ECM_LIKERT_LABELS = [
   'Strongly\ndisagree',
   'Disagree',
@@ -423,49 +513,52 @@ const ECM_LIKERT_LABELS = [
 ];
 
 const ECM_CI_ITEMS = [
-  { key: 'CI1', text: 'I intend to continue using the chosen product rather than discontinue its use.' },
-  { key: 'CI2', text: 'My intentions are to continue using the chosen product rather than use any alternative means.' },
-  { key: 'CI3', text: 'If I could, I would like to discontinue my use of the chosen product.' } // reverse in analysis
+  {key: 'CI1', text: 'I intend to continue using the chosen product rather than discontinue its use.'},
+  {key: 'CI2', text: 'My intentions are to continue using the chosen product rather than use any alternative means.'},
+  {key: 'CI3', text: 'If I could, I would like to discontinue my use of the chosen product.'} // reverse in analysis
 ];
 
-// dynamic PU items
+// Dynamic PU items based on category
 function getECM_PU_ITEMS(cat) {
   const endings = {
-    'Detergent':              'doing laundry',
-    'Smartwatch':            'tracking my health and activities',
-    'Speaker':                'enhancing my environment with quality sound',
-    'Water Bottle':           'staying hydrated',
-    'Electric Toothbrush':   'maintaining oral hygiene',
-    'Backpack':               'carrying and organizing my essentials'
+    Detergent: 'doing laundry',
+    Smartwatch: 'tracking my health and activities',
+    Speaker: 'enhancing my environment with quality sound',
+    'Water Bottle': 'staying hydrated',
+    'Electric Toothbrush': 'maintaining oral hygiene',
+    Backpack: 'carrying and organizing my essentials'
   };
 
-  const end = endings[cat] || 'its daily use';  // fallback if category is unknown
+  const end = endings[cat] || 'its daily use'; // fallback if category is unknown
 
   return [
-    { key: 'PU1', text: `Using the chosen product improves my performance in ${end}.` },
-    { key: 'PU2', text: `Using the chosen product increases my productivity in ${end}.` },
-    { key: 'PU3', text: `Using the chosen product enhances my effectiveness in ${end}.` },
-    { key: 'PU4', text: `Overall, the chosen product is useful in ${end}.` }
+    {key: 'PU1', text: `Using the chosen product improves my performance in ${end}.`},
+    {key: 'PU2', text: `Using the chosen product increases my productivity in ${end}.`},
+    {key: 'PU3', text: `Using the chosen product enhances my effectiveness in ${end}.`},
+    {key: 'PU4', text: `Overall, the chosen product is useful in ${end}.`}
   ];
 }
 
-
 const ECM_SAT_ITEMS = [
-  { key: 'S1', left: 'Very dissatisfied',    right: 'Very satisfied' },
-  { key: 'S2', left: 'Very displeased',      right: 'Very pleased' },
-  { key: 'S3', left: 'Very frustrated',      right: 'Very contented' },
-  { key: 'S4', left: 'Absolutely terrible',  right: 'Absolutely delighted' }
+  { key: 'S1', left: 'Very dissatisfied', right: 'Very satisfied' },
+  { key: 'S2', left: 'Very displeased', right: 'Very pleased' },
+  { key: 'S3', left: 'Very frustrated', right: 'Very contented' },
+  { key: 'S4', left: 'Absolutely terrible', right: 'Absolutely delighted' }
 ];
 
-
-
-
-const capFirst = s => (s && s.length) ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const capFirst = s =>
+  s && s.length ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 
 /* =========================================================================
    7) DEMOGRAPHICS LABEL MAPS
    ======================================================================= */
-const GENDER_LABEL = { 1: 'Male', 2: 'Female', 3: 'Non-binary', 4: 'Prefer not to say' };
+
+const GENDER_LABEL = {
+  1: 'Male',
+  2: 'Female',
+  3: 'Non-binary',
+  4: 'Prefer not to say'
+};
 
 const EDUCATION_LABEL = {
   1: 'No schooling completed',
@@ -493,12 +586,15 @@ const EMPLOYMENT_LABEL = {
 /* =========================================================================
    8) PAGE DEFINITIONS
    ======================================================================= */
+
 const PAGES = [
-  /* ----------------------- Intro ----------------------- */
+  /* -----------------------------------------------------------------------
+     Intro
+     ---------------------------------------------------------------------- */
   {
     slug: 'instructions',
     title: 'Instructions',
-    render: (container) => {
+    render: container => {
       container.innerHTML = `
         <div class="card">
           <h1>Instructions</h1>
@@ -513,19 +609,21 @@ const PAGES = [
     }
   },
 
-  /* ----------------------- Task 1 ---------------------- */
+  /* -----------------------------------------------------------------------
+     Task 1 — Product Rating
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-1',
     title: 'Task 1',
-    render: async (container) => {
-      // Wiring + container handle
+    render: async container => {
+      // Abort previous listeners (if any) and keep references for cleanup
       T1_CTRL?.abort();
       T1_CTRL = new AbortController();
       const { signal } = T1_CTRL;
       T1_CONTAINER = container;
       T1_LAST_SIG = null;
 
-      // Participant + condition
+      // Ensure participant + condition exist
       try {
         const { participant_id, condition } = await ensureParticipant();
         console.log('Participant:', participant_id, 'Condition:', condition);
@@ -543,22 +641,7 @@ const PAGES = [
         5: 'Very Interesting'
       };
 
-      const makeScale = (name, selectedVal) => `
-        <div class="scale scale--vertical" role="radiogroup" aria-label="${name}">
-          ${[1,2,3,4,5].map(v => `
-            <label>
-              <input type="radio" name="${name}" value="${v}" ${selectedVal === v ? 'checked' : ''}/>
-              <div style="display:flex; flex-direction:column; align-items:flex-start; gap:4px;">
-                <strong>${v}</strong>
-                <span class="small muted">${DESCRIPTORS[v]}</span>
-              </div>
-            </label>
-          `).join('')}
-        </div>
-      `;
-
-
-      const HEADERS_5 = [1,2,3,4,5];
+      const HEADERS_5 = [1, 2, 3, 4, 5];
 
       container.innerHTML = `
         <div class="card">
@@ -594,10 +677,13 @@ const PAGES = [
                       <td class="stmt">${cat}</td>
                       ${HEADERS_5.map(v => `
                         <td class="center">
-                          <input type="radio"
-                                name="t1_cat_${i}"
-                                value="${v}"
-                                ${saved === v ? 'checked' : ''} aria-label="${cat} = ${v}">
+                          <input
+                            type="radio"
+                            name="t1_cat_${i}"
+                            value="${v}"
+                            ${saved === v ? 'checked' : ''}
+                            aria-label="${cat} = ${v}"
+                          >
                         </td>
                       `).join('')}
                     </tr>
@@ -609,17 +695,18 @@ const PAGES = [
         </div>
       `;
 
-
       const err = container.querySelector('#t1Error');
       let lastSavedSig = null;
 
       const collectRatings = () => collectTask1RatingsFrom(container);
 
+      // Auto-save Task 1 ratings when all categories are filled
       const tryAutoSave = async () => {
         if ((PAGES[state.pageIndex]?.slug) !== 'task-1') return;
 
         const { ratings, missing } = collectRatings();
         console.log('[Task1] collected ratings:', ratings, 'missing:', missing);
+
         if (missing.length) return;
 
         const sig = JSON.stringify(ratings);
@@ -632,11 +719,12 @@ const PAGES = [
           await saveTask1Ratings(ratings);
           lastSavedSig = sig;
 
-          // Assign category (best match from ratings)
+          // Assign category based on ratings (best match chosen by DB function)
           const { data: catData, error: catErr } = await supabase.rpc(
             'choose_assigned_category',
             { p_participant_id: state.participant_id }
           );
+
           if (!catErr) {
             state.assignedCategory = catData || null;
             persist();
@@ -650,7 +738,7 @@ const PAGES = [
         }
       };
 
-      function onT1Change(e){
+      function onT1Change(e) {
         if (!e.target.matches('input[type="radio"][name^="t1_cat_"]')) return;
 
         const tr = e.target.closest('tr[data-cat]');
@@ -665,16 +753,24 @@ const PAGES = [
         T1_SAVE_TIMER = setTimeout(tryAutoSave, 200);
       }
 
-
       container.addEventListener('change', onT1Change, { signal });
     },
 
     beforeNext: async () => {
-      try { T1_CTRL?.abort(); } catch {}
-      if (T1_SAVE_TIMER) { clearTimeout(T1_SAVE_TIMER); T1_SAVE_TIMER = null; }
+      try {
+        T1_CTRL?.abort();
+      } catch {}
+
+      if (T1_SAVE_TIMER) {
+        clearTimeout(T1_SAVE_TIMER);
+        T1_SAVE_TIMER = null;
+      }
 
       const err = document.getElementById('t1Error');
-      if (err) { err.style.display = 'none'; err.textContent = ''; }
+      if (err) {
+        err.style.display = 'none';
+        err.textContent = '';
+      }
 
       const root = T1_CONTAINER || document.getElementById('pageMount');
       const { ratings, missing } = collectTask1RatingsFrom(root);
@@ -694,6 +790,7 @@ const PAGES = [
           'choose_assigned_category',
           { p_participant_id: state.participant_id }
         );
+
         if (!catErr) {
           state.assignedCategory = catData || null;
           persist();
@@ -712,17 +809,29 @@ const PAGES = [
     }
   },
 
-  /* ----------------------- Task 2: Intro --------------- */
+  /* -----------------------------------------------------------------------
+     Task 2 — Intro
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-2-intro',
     title: 'Task 2 — Online Decision-Making (Instructions)',
-    render: async (container) => {
-      const toggleGlobalNext = (show) => {
-        const selectors = ['#btnContinue', '#nextBtn', '.btn-next', 'button[data-next]', '[data-role="next"]'];
+    render: async container => {
+      const toggleGlobalNext = show => {
+        const selectors = [
+          '#btnContinue',
+          '#nextBtn',
+          '.btn-next',
+          'button[data-next]',
+          '[data-role="next"]'
+        ];
         selectors.forEach(sel =>
-          document.querySelectorAll(sel).forEach(el => { el.style.display = show ? '' : 'none'; })
+          document.querySelectorAll(sel).forEach(el => {
+            el.style.display = show ? '' : 'none';
+          })
         );
       };
+
+      // Hide global "Continue" during intro
       toggleGlobalNext(false);
 
       const loadRaw = (state.condition?.load || 'low').toLowerCase();
@@ -748,23 +857,27 @@ const PAGES = [
       `;
 
       const btn = container.querySelector('#startTask2');
-      if (btn) btn.addEventListener('click', () => {
-        if (!tracking) startMouseTracking();
-        if (typeof window.__doNext === 'function') window.__doNext();
-      });
+      if (btn) {
+        btn.addEventListener('click', () => {
+          if (!tracking) startMouseTracking();
+          if (typeof window.__doNext === 'function') window.__doNext();
+        });
+      }
     },
     beforeNext: async () => true
   },
 
-  /* ----------------------- Task 2: Products ----------- */
+  /* -----------------------------------------------------------------------
+     Task 2 — Product Selection
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-2',
     title: 'Task 2 — Online Decision-Making',
-    render: async (container) => {
+    render: async container => {
       const loadRaw = (state.condition?.load || 'low').toLowerCase();
       const nAttrs = loadRaw === 'high' ? 6 : 3;
 
-      // Ensure assigned category is populated for reloads/deep links
+      // Ensure assigned category is populated in case of reloads / deep links
       if (!state.assignedCategory) {
         try {
           const { data: row, error } = await supabase
@@ -772,6 +885,7 @@ const PAGES = [
             .select('assigned_category')
             .eq('participant_id', state.participant_id)
             .single();
+
           if (!error) {
             state.assignedCategory = row?.assigned_category || null;
             saveLS('exp_state', state);
@@ -785,7 +899,11 @@ const PAGES = [
 
       const chosenCat = state.assignedCategory || 'Detergent';
       const baseItems = PRODUCTS[chosenCat] || [];
-      const seedInt = hashStringToInt(String(state.session_id || state.participant_id || 'seed'));
+
+      // Use deterministic randomization based on session or participant ID
+      const seedInt = hashStringToInt(
+        String(state.session_id || state.participant_id || 'seed')
+      );
       const rng = mulberry32(seedInt);
       const items = shuffleWithRNG(baseItems, rng);
 
@@ -794,35 +912,48 @@ const PAGES = [
           <h1>Task 2 - Online Decision Making</h1>
           <p><strong>Task: Imagine you are buying for your weekly use. Please select the product you would add to your cart.</strong></p>
           <p>Additional information on the products can be seen when you hover over the product. You may review as much information as you like before making your decision.</p>
-          <p>Click on the product to select it and finish the task using the “Finish Task 2” button at the bottom.</p>`;
+          <p>Click on the product to select it and finish the task using the “Finish Task 2” button at the bottom.</p>
+      `;
 
       if (!items.length) {
         html += `
           <div class="card error" style="margin-top:12px;">
             No products found for the category <em>${chosenCat}</em>. Please go back and try again.
-          </div>`;
+          </div>
+        `;
       } else {
         html += `
           <div class="product-grid-wrap">
             <div class="product-grid" id="productGrid">
-              ${items.map(p => {
-                const attrs = p.attrs?.slice(0, Math.min(nAttrs, p.attrs.length)) || [];
-                return `
-                  <article class="product-card" data-prod="${p.id}" data-name="${p.name}" tabindex="0" aria-describedby="${p.id}-attrs">
-                    <img class="product-thumb" alt="${p.name}" src="${p.image}" />
-                    <div class="product-main">
-                      <div class="row row-space">
-                        <div class="product-title" title="${p.name}">${p.name}</div>
-                        <div class="price">${p.price ?? ''}</div>
+              ${items
+                .map(p => {
+                  const attrs =
+                    p.attrs?.slice(0, Math.min(nAttrs, p.attrs.length)) || [];
+                  return `
+                    <article
+                      class="product-card"
+                      data-prod="${p.id}"
+                      data-name="${p.name}"
+                      tabindex="0"
+                      aria-describedby="${p.id}-attrs"
+                    >
+                      <img class="product-thumb" alt="${p.name}" src="${p.image}" />
+                      <div class="product-main">
+                        <div class="row row-space">
+                          <div class="product-title" title="${p.name}">${p.name}</div>
+                          <div class="price">${p.price ?? ''}</div>
+                        </div>
                       </div>
-                    </div>
-                    <ul id="${p.id}-attrs" class="attrs">
+                      <ul id="${p.id}-attrs" class="attrs">
                         ${attrs.map(a => `<li title="${a}">${a}</li>`).join('')}
                       </ul>
-                  </article>`;
-              }).join('')}
+                    </article>
+                  `;
+                })
+                .join('')}
             </div>
-          </div>`;
+          </div>
+        `;
       }
 
       html += `
@@ -831,52 +962,79 @@ const PAGES = [
         <div style="margin-top:20px;">
           <button id="finishTask2" class="btn primary">Finish Task 2</button>
         </div>
-      </div>`;
+      </div>
+      `;
 
-      container.innerHTML = html;  
+      container.innerHTML = html;
 
-      // Rehydrate selection
+      // Rehydrate previously saved selection (if any)
       const savedId = state.answers?.task2?.selected_prod_id;
       if (savedId) {
-        const esc = (window.CSS && CSS.escape) ? CSS.escape(savedId) : String(savedId).replace(/"/g, '\\"');
-        const selCard = container.querySelector(`.product-card[data-prod="${esc}"]`);
+        const esc =
+          window.CSS && CSS.escape
+            ? CSS.escape(savedId)
+            : String(savedId).replace(/"/g, '\\"');
+        const selCard = container.querySelector(
+          `.product-card[data-prod="${esc}"]`
+        );
         if (selCard) selCard.classList.add('selected');
       }
 
-      // Start tracking (Task 2 begins here)
+      // Start mouse tracking for Task 2
       startMouseTracking();
 
-      // Hover tracking
+      // Hover tracking for each product card
       $$('.product-card', container).forEach(card => {
         const prodId = card.getAttribute('data-prod');
-        card.addEventListener('pointerenter', () => startHover(prodId), { passive: true });
-        card.addEventListener('pointerleave', () => endHover('leave'),  { passive: true });
+        card.addEventListener('pointerenter', () => startHover(prodId), {
+          passive: true
+        });
+        card.addEventListener(
+          'pointerleave',
+          () => endHover('leave'),
+          { passive: true }
+        );
       });
-      $('#productGrid', container)?.addEventListener('pointerleave', () => endHover('leave'), { passive: true });
-      document.addEventListener('visibilitychange', () => { if (document.hidden) endHover('leave'); });
 
-      // Selection
+      $('#productGrid', container)?.addEventListener(
+        'pointerleave',
+        () => endHover('leave'),
+        { passive: true }
+      );
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) endHover('leave');
+      });
+
+      // Selection click handler
       const grid = container.querySelector('#productGrid');
       if (grid) {
-        grid.addEventListener('click', (e) => {
+        grid.addEventListener('click', e => {
           const card = e.target.closest('.product-card');
           if (!card) return;
 
           const prodId = card.dataset.prod;
-          const prodName = card.dataset.name || card.querySelector('.product-title')?.textContent?.trim() || '';
+          const prodName =
+            card.dataset.name ||
+            card.querySelector('.product-title')?.textContent?.trim() ||
+            '';
 
+          // Redundant but kept for compatibility
           state.task2_selection = prodId;
           state.task2_selection_name = prodName;
+
           state.answers.task2.selected_prod_id = prodId;
           state.answers.task2.selected_prod_name = prodName;
           persist();
 
-          grid.querySelectorAll('.product-card.selected')?.forEach(el => el.classList.remove('selected'));
+          grid
+            .querySelectorAll('.product-card.selected')
+            ?.forEach(el => el.classList.remove('selected'));
           card.classList.add('selected');
         });
       }
 
-      // Finish button
+      // Finish Task 2 button
       const finishBtn = container.querySelector('#finishTask2');
       if (finishBtn) {
         finishBtn.addEventListener('click', async () => {
@@ -901,16 +1059,26 @@ const PAGES = [
                 { participant_id: state.participant_id, selected_product: name },
                 { onConflict: 'participant_id' }
               );
+
             if (upErr) throw upErr;
 
-            try { await flushMouseEvents('task-2'); } catch (e) { console.error('Flush failed:', e); }
-            try { stopMouseTracking(); } catch {}
+            try {
+              await flushMouseEvents('task-2');
+            } catch (e) {
+              console.error('Flush failed:', e);
+            }
+
+            try {
+              stopMouseTracking();
+            } catch {}
 
             if (typeof window.__doNext === 'function') window.__doNext();
           } catch (e) {
             console.error('Save selection failed:', e);
             if (errBox) {
-              errBox.textContent = `Saving failed, please try again. ${e?.message || ''}`;
+              errBox.textContent = `Saving failed, please try again. ${
+                e?.message || ''
+              }`;
               errBox.style.display = 'block';
             }
             finishBtn.disabled = false;
@@ -922,42 +1090,57 @@ const PAGES = [
 
     beforeNext: async () => {
       const errBox = document.getElementById('t2Error');
-      if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
+      if (errBox) {
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+      }
 
       try {
-        await saveTask2SelectionOrThrow();     // <- throws if nothing selected
+        // Throws 'NO_SELECTION' if nothing is selected
+        await saveTask2SelectionOrThrow();
+
         if (hoverActive) endHover('end_task');
         await flushHoverEvents();
-        return true;                           // allow navigation
+        return true;
       } catch (e) {
         if (e?.message === 'NO_SELECTION') {
           if (errBox) {
             errBox.textContent = 'Please select a product before continuing.';
             errBox.style.display = 'block';
-            errBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            errBox.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center'
+            });
           }
-          // Optional: visual nudge on the grid
+
           const grid = document.getElementById('productGrid');
-          if (grid) grid.classList.add('error-ring'), setTimeout(() => grid.classList.remove('error-ring'), 800);
-          return false;                        // block navigation
+          if (grid) {
+            grid.classList.add('error-ring');
+            setTimeout(() => grid.classList.remove('error-ring'), 800);
+          }
+          return false;
         }
-        // Any other save error
+
         if (errBox) {
-          errBox.textContent = `Saving failed, please try again. ${e?.message || ''}`;
+          errBox.textContent = `Saving failed, please try again. ${
+            e?.message || ''
+          }`;
           errBox.style.display = 'block';
         }
         return false;
       }
     }
-
   },
 
-  /* ----------------------- Task 3: PAAS ---------------- */
+  /* -----------------------------------------------------------------------
+     Task 3.1 — PAAS (Cognitive Load)
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-3-paas',
     title: 'Task 3 — PAAS (Cognitive Load)',
-    render: (container) => {
+    render: container => {
       const saved = state.answers?.paas ?? null;
+
       container.innerHTML = `
         <div class="card">
           <h1>Questionnaire (1)</h1>
@@ -967,19 +1150,25 @@ const PAGES = [
           <div id="paasError" class="error" style="display:none;"></div>
 
           <div class="paas-scale" role="radiogroup" aria-label="PAAS scale">
-            ${[1,2,3,4,5,6,7,8,9].map(v => `
+            ${[1, 2, 3, 4, 5, 6, 7, 8, 9]
+              .map(
+                v => `
               <label class="paas-option">
-                <input type="radio" name="paas" value="${v}" ${saved === v ? 'checked' : ''}>
+                <input type="radio" name="paas" value="${v}" ${
+                  saved === v ? 'checked' : ''
+                }>
                 <span class="paas-label">
                   <strong>${v} </strong> - ${PAAS_LABELS[v]}
                 </span>
               </label>
-            `).join('')}
+            `
+              )
+              .join('')}
           </div>
         </div>
       `;
 
-      container.addEventListener('change', (e) => {
+      container.addEventListener('change', e => {
         if (e.target.name === 'paas') {
           state.answers.paas = Number(e.target.value);
           persist();
@@ -992,7 +1181,10 @@ const PAGES = [
       const err = document.getElementById('paasError');
 
       if (!sel) {
-        if (err) { err.textContent = 'Please select one option for the scale.'; err.style.display = 'block'; }
+        if (err) {
+          err.textContent = 'Please select one option for the scale.';
+          err.style.display = 'block';
+        }
         return false;
       }
 
@@ -1005,20 +1197,27 @@ const PAGES = [
 
       if (error) {
         console.error('PAAS upsert error:', error);
-        if (err) { err.textContent = `Save failed: ${error.message || 'Unknown error'}.`; err.style.display = 'block'; }
+        if (err) {
+          err.textContent = `Save failed: ${
+            error.message || 'Unknown error'
+          }.`;
+          err.style.display = 'block';
+        }
         return false;
       }
       return true;
     }
   },
 
-  /* ----------------------- Task 3: NRQ ----------------- */
+  /* -----------------------------------------------------------------------
+     Task 3.2 — NRQ (Cognitive Load)
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-3-nrq',
     title: 'Task 3 — Cognitive Load (NRQ)',
-    render: (container) => {
+    render: container => {
       const items = NRQ_ITEMS;
-      const headers = [1,2,3,4,5,6,7];
+      const headers = [1, 2, 3, 4, 5, 6, 7];
 
       container.innerHTML = `
         <div class="card">
@@ -1046,26 +1245,38 @@ const PAGES = [
                 </tr>
               </thead>
               <tbody>
-                ${items.map(item => {
+                ${items
+                  .map(item => {
                     const saved = state.answers?.nrq?.[item.key] ?? null;
                     return `
                       <tr>
                         <td class="stmt">${item.text}</td>
-                        ${headers.map(v => `
+                        ${headers
+                          .map(
+                            v => `
                           <td class="center">
-                            <input type="radio" name="nrq_${item.key}" value="${v}" ${saved === v ? 'checked' : ''} aria-label="${item.key} = ${v}">
+                            <input
+                              type="radio"
+                              name="nrq_${item.key}"
+                              value="${v}"
+                              ${saved === v ? 'checked' : ''}
+                              aria-label="${item.key} = ${v}"
+                            >
                           </td>
-                        `).join('')}
+                        `
+                          )
+                          .join('')}
                       </tr>
                     `;
-                  }).join('')}
+                  })
+                  .join('')}
               </tbody>
             </table>
           </div>
         </div>
       `;
 
-      container.addEventListener('change', (e) => {
+      container.addEventListener('change', e => {
         const m = e.target.name?.match(/^nrq_(.+)$/);
         if (m) {
           const key = m[1];
@@ -1098,7 +1309,9 @@ const PAGES = [
       if (error) {
         console.error('NRQ upsert error:', error);
         if (err) {
-          err.textContent = `Save failed: ${error.message || 'Unknown error'}.`;
+          err.textContent = `Save failed: ${
+            error.message || 'Unknown error'
+          }.`;
           err.style.display = 'block';
         }
         return false;
@@ -1107,30 +1320,35 @@ const PAGES = [
     }
   },
 
-  /* ----------------------- Task 3: PIES ---------------- */
+  /* -----------------------------------------------------------------------
+     Task 3.3 — PIES (Product Interest)
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-3-pies',
     title: 'Task 3 — Product Interest (PIES)',
-    render: (container) => {
-      const headers = [1,2,3,4,5];
-      const normCat = (state.assignedCategory || '').toLowerCase() === 'smartwatches'
-        ? 'smartwatch'
-        : (state.assignedCategory || '');
+    render: container => {
+      const headers = [1, 2, 3, 4, 5];
+
+      // Normalize category (e.g. "Smartwatches" → "smartwatch")
+      const normCat =
+        (state.assignedCategory || '').toLowerCase() === 'smartwatches'
+          ? 'smartwatch'
+          : state.assignedCategory || '';
+
       const { pp, ps } = piesNounsForCategory(normCat);
 
-      // --- Stable random order per participant ---
-      // If we already have a stored order, reuse it. Otherwise, create, shuffle and store it.
+      // Stable random order per participant:
+      // If we already have a stored order, reuse it; otherwise create and store.
       if (!Array.isArray(state.piesOrder) || state.piesOrder.length !== PIES_ITEMS.length) {
-        const keys = PIES_ITEMS.map(item => item.key);      // ['PIES1', 'PIES2', ...]
+        const keys = PIES_ITEMS.map(item => item.key); // ['PIES1', 'PIES2', ...]
         state.piesOrder = shuffleInPlace(keys);
-        persist();                                          // save to localStorage
+        persist();
       }
 
-      // Map stored order of keys back to the item objects
+      // Map stored order of keys back to full item objects
       const orderedItems = state.piesOrder.map(key =>
         PIES_ITEMS.find(item => item.key === key)
       );
-
 
       container.innerHTML = `
         <div class="card">
@@ -1156,26 +1374,38 @@ const PAGES = [
                 </tr>
               </thead>
               <tbody>
-                ${orderedItems.map(item => {
-                  const saved = state.answers?.pies?.[item.key] ?? null;
-                  return `
-                    <tr>
-                      <td class="stmt">${item.t(pp, ps)}</td>
-                      ${headers.map(v => `
-                        <td class="center">
-                          <input type="radio" name="pies_${item.key}" value="${v}" ${saved === v ? 'checked' : ''} aria-label="${item.key} = ${v}">
-                        </td>
-                      `).join('')}
-                    </tr>
-                  `;
-                }).join('')}
+                ${orderedItems
+                  .map(item => {
+                    const saved = state.answers?.pies?.[item.key] ?? null;
+                    return `
+                      <tr>
+                        <td class="stmt">${item.t(pp, ps)}</td>
+                        ${headers
+                          .map(
+                            v => `
+                          <td class="center">
+                            <input
+                              type="radio"
+                              name="pies_${item.key}"
+                              value="${v}"
+                              ${saved === v ? 'checked' : ''}
+                              aria-label="${item.key} = ${v}"
+                            >
+                          </td>
+                        `
+                          )
+                          .join('')}
+                      </tr>
+                    `;
+                  })
+                  .join('')}
               </tbody>
             </table>
           </div>
         </div>
       `;
 
-      container.addEventListener('change', (e) => {
+      container.addEventListener('change', e => {
         const m = e.target.name?.match(/^pies_(.+)$/);
         if (m) {
           const key = m[1];
@@ -1192,7 +1422,10 @@ const PAGES = [
       for (const { key } of PIES_ITEMS) {
         const sel = document.querySelector(`input[name="pies_${key}"]:checked`);
         if (!sel) {
-          if (err) { err.textContent = 'Please answer all statements before continuing.'; err.style.display = 'block'; }
+          if (err) {
+            err.textContent = 'Please answer all statements before continuing.';
+            err.style.display = 'block';
+          }
           return false;
         }
         row[key] = parseInt(sel.value, 10);
@@ -1204,249 +1437,293 @@ const PAGES = [
 
       if (error) {
         console.error('PIES upsert error:', error);
-        if (err) { err.textContent = `Save failed: ${error.message || 'Unknown error'}.`; err.style.display = 'block'; }
+        if (err) {
+          err.textContent = `Save failed: ${
+            error.message || 'Unknown error'
+          }.`;
+          err.style.display = 'block';
+        }
         return false;
       }
       return true;
     }
   },
 
-/* ----------------------- Task 4: ECM ---------------- */
-{
-  slug: 'task-3-ecm',
-  title: 'Questionnaire (4)',
-  render: async (container) => {
-    if (!state.assignedCategory) {
-      try {
-        const { data, error } = await supabase
-          .from('participants')
-          .select('assigned_category')
-          .eq('participant_id', state.participant_id)
-          .maybeSingle();
+  /* -----------------------------------------------------------------------
+     Task 3.4 (Part 1) — ECM: PU & CI
+     ---------------------------------------------------------------------- */
+  {
+    slug: 'task-3-ecm',
+    title: 'Questionnaire (4)',
+    render: async container => {
+      // Ensure assigned category is loaded from DB if missing
+      if (!state.assignedCategory) {
+        try {
+          const { data, error } = await supabase
+            .from('participants')
+            .select('assigned_category')
+            .eq('participant_id', state.participant_id)
+            .maybeSingle();
 
-        if (!error && data?.assigned_category) {
-          state.assignedCategory = data.assigned_category;
-          saveLS('exp_state', state);
-          console.log('[ECM] Loaded assignedCategory from Supabase:', state.assignedCategory);
-        } else {
-          console.warn('[ECM] Could not load assigned_category:', error || 'No value returned');
+          if (!error && data?.assigned_category) {
+            state.assignedCategory = data.assigned_category;
+            saveLS('exp_state', state);
+            console.log(
+              '[ECM] Loaded assignedCategory from Supabase:',
+              state.assignedCategory
+            );
+          } else {
+            console.warn(
+              '[ECM] Could not load assigned_category:',
+              error || 'No value returned'
+            );
+          }
+        } catch (err) {
+          console.error('[ECM] Supabase fetch failed:', err);
         }
-      } catch (err) {
-        console.error('[ECM] Supabase fetch failed:', err);
       }
+
+      const likertRow = (name, label) => `
+        <tr>
+          <td class="stmt">${label}</td>
+          ${ECM_HEADERS.map(
+            v => `
+            <td class="center">
+              <input
+                type="radio"
+                name="${name}"
+                value="${v}"
+                ${state.answers.ecm?.[name] === v ? 'checked' : ''}
+                aria-label="${name} = ${v}"
+              >
+            </td>
+          `
+          ).join('')}
+        </tr>
+      `;
+
+      const category = state.assignedCategory || 'Detergents';
+      const PU_ITEMS = getECM_PU_ITEMS(category);
+
+      const PU_CI_COMBINED = [
+        ...PU_ITEMS.map(it => ({ type: 'item', item: it })),
+        ...ECM_CI_ITEMS.map(it => ({ type: 'item', item: it }))
+      ];
+
+      container.innerHTML = `
+        <div class="card">
+          <h1>Questionnaire (4.1)</h1>
+          <p>Please answer the following statements regarding the product you finally chose in the decision-making task.</p>
+          <p><strong>Please indicate how much you agree with each statement using a 7-point scale, from <i>strongly disagree (1)</i> to <i>strongly agree (7)</i>.</strong></p>
+          <div id="ecmError" class="error" style="display:none;"></div>
+
+          <!-- Perceived Usefulness + Continuance Intention -->
+          <section class="card" style="padding:16px;">
+            <div class="likert-table-wrapper">
+              <table class="likert-table ecm-pu-ci">
+                <thead>
+                  <tr>
+                    <th>Statement</th>
+                    ${ECM_HEADERS.map(h => `<th>${h}</th>`).join('')}
+                  </tr>
+                  <tr class="likert-help">
+                    <th></th>
+                    ${ECM_LIKERT_LABELS.map(lbl => `<td>${lbl}</td>`).join('')}
+                  </tr>
+                </thead>
+                <tbody>
+                  ${PU_CI_COMBINED
+                    .map(({ item }) => likertRow(`ECM_${item.key}`, item.text))
+                    .join('')}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      `;
+
+      container.addEventListener('change', e => {
+        const name = e.target?.name;
+        if (!name || !/^ECM_/.test(name)) return;
+        state.answers.ecm[name] = Number(e.target.value);
+        persist();
+      });
+    },
+
+    beforeNext: async () => {
+      const err = document.getElementById('ecmError');
+      if (err) {
+        err.style.display = 'none';
+        err.textContent = '';
+      }
+
+      const category = state.assignedCategory || 'Detergents';
+      const PU_ITEMS = getECM_PU_ITEMS(category);
+
+      const requiredKeys = [
+        ...PU_ITEMS.map(it => 'ECM_' + it.key),
+        ...ECM_CI_ITEMS.map(it => 'ECM_' + it.key)
+      ];
+
+      for (const k of requiredKeys) {
+        const sel = document.querySelector(`input[name="${k}"]:checked`);
+        if (!sel) {
+          if (err) {
+            err.textContent = 'Please answer all statements before continuing.';
+            err.style.display = 'block';
+          }
+          return false;
+        }
+      }
+
+      const row = { participant_id: state.participant_id };
+      requiredKeys.forEach(k => {
+        const sel = document.querySelector(`input[name="${k}"]:checked`);
+        row[k] = parseInt(sel.value, 10);
+      });
+
+      const { error } = await supabase
+        .from('questionnaires')
+        .upsert(row, {
+          onConflict: 'participant_id',
+          returning: 'minimal'
+        });
+
+      if (error) {
+        console.error('ECM upsert error:', error);
+        if (err) {
+          err.textContent = `Save failed: ${
+            error.message || 'Unknown error'
+          }.`;
+          err.style.display = 'block';
+        }
+        return false;
+      }
+      return true;
     }
+  },
 
-    const likertRow = (name, label) => `
-      <tr>
-        <td class="stmt">${label}</td>
-        ${ECM_HEADERS.map(v => `
-          <td class="center">
-            <input type="radio" name="${name}" value="${v}"
-              ${state.answers.ecm?.[name] === v ? 'checked' : ''}
-              aria-label="${name} = ${v}">
-          </td>
-        `).join('')}
-      </tr>
-    `;
+  /* -----------------------------------------------------------------------
+     Task 3.4 (Part 2) — ECM: Satisfaction
+     ---------------------------------------------------------------------- */
+  {
+    slug: 'task-3-ecm-satisfaction',
+    title: 'Questionnaire (4.2)',
+    render: container => {
+      const headers = ECM_HEADERS;
 
-    const category = state.assignedCategory || 'Detergents';
-    const PU_ITEMS = getECM_PU_ITEMS(category);
+      const satRow = item => `
+        <tr>
+          <td class="anchor-left">${item.left}</td>
+          ${headers
+            .map(
+              v => `
+            <td class="center">
+              <input
+                type="radio"
+                name="ECM_${item.key}"
+                value="${v}"
+                ${state.answers.ecm?.[`ECM_${item.key}`] === v ? 'checked' : ''}
+                aria-label="${item.key} = ${v}"
+              >
+            </td>
+          `
+            )
+            .join('')}
+          <td class="anchor-right">${item.right}</td>
+        </tr>
+      `;
 
-    const PU_CI_COMBINED = [
-      ...PU_ITEMS.map(it => ({ type: 'item', item: it })),
-      ...ECM_CI_ITEMS.map(it => ({ type: 'item', item: it }))
-    ];
+      container.innerHTML = `
+        <div class="card">
+          <h1>Questionnaire (4.2)</h1>
+          <p>Next, think about the overall experience of the product you have chosen in the decision-making task, based on the information and features presented.</p>
+          <p>Imagine how you would feel using this product in your daily life.</p>
+          <p>Please rate the following statement on the 7-point semantic differential scales.</p>
+          <p><strong>How do you feel about your overall experience of the chosen product’s use?</strong></p>
 
-    container.innerHTML = `
-      <div class="card">
-        <h1>Questionnaire (4.1)</h1>
-        <p>Please answer the following statements regarding the product you finally chose in the decision-making task.</p>
-        <p><strong>Please indicate how much you agree with each statement using a 7-point scale, from <i>strongly disagree (1)</i> to <i>strongly agree (7)</i>.</strong></p>
-        <div id="ecmError" class="error" style="display:none;"></div>
+          <div id="ecmSatError" class="error" style="display:none;"></div>
 
-        <!-- Perceived Usefulness + Continuance Intention -->
-        <section class="card" style="padding:16px;">
           <div class="likert-table-wrapper">
-            <table class="likert-table ecm-pu-ci">
+            <table class="likert-table ecm-s">
               <thead>
                 <tr>
-                  <th>Statement</th>
-                  ${ECM_HEADERS.map(h => `<th>${h}</th>`).join('')}
-                </tr>
-                <tr class="likert-help">
-                  <th></th>
-                  ${ECM_LIKERT_LABELS.map(lbl => `<td>${lbl}</td>`).join('')}
+                  <th style="width:18ch;"></th>
+                  ${headers.map(h => `<th>${h}</th>`).join('')}
+                  <th style="width:18ch;"></th>
                 </tr>
               </thead>
               <tbody>
-                ${PU_CI_COMBINED.map(({ item }) => likertRow(`ECM_${item.key}`, item.text)).join('')}
+                ${ECM_SAT_ITEMS.map(satRow).join('')}
               </tbody>
             </table>
           </div>
-        </section>
-      </div>
-    `;
-
-    container.addEventListener('change', (e) => {
-      const name = e.target?.name;
-      if (!name || !/^ECM_/.test(name)) return;
-      state.answers.ecm[name] = Number(e.target.value);
-      persist();
-    });
-  },
-
-  beforeNext: async () => {
-    const err = document.getElementById('ecmError');
-    if (err) { err.style.display = 'none'; err.textContent = ''; }
-
-    const category = state.assignedCategory || 'Detergents';
-    const PU_ITEMS = getECM_PU_ITEMS(category);
-
-    const requiredKeys = [
-      ...PU_ITEMS.map(it => 'ECM_' + it.key),
-      ...ECM_CI_ITEMS.map(it => 'ECM_' + it.key),
-    ];
-
-    for (const k of requiredKeys) {
-      const sel = document.querySelector(`input[name="${k}"]:checked`);
-      if (!sel) {
-        if (err) {
-          err.textContent = 'Please answer all statements before continuing.';
-          err.style.display = 'block';
-        }
-        return false;
-      }
-    }
-
-    const row = { participant_id: state.participant_id };
-    requiredKeys.forEach(k => {
-      const sel = document.querySelector(`input[name="${k}"]:checked`);
-      row[k] = parseInt(sel.value, 10);
-    });
-
-    const { error } = await supabase
-      .from('questionnaires')
-      .upsert(row, { onConflict: 'participant_id', returning: 'minimal' });
-
-    if (error) {
-      console.error('ECM upsert error:', error);
-      if (err) {
-        err.textContent = `Save failed: ${error.message || 'Unknown error'}.`;
-        err.style.display = 'block';
-      }
-      return false;
-    }
-    return true;
-  }
-},
-
-
-// Satisfaction Page
-{
-  slug: 'task-3-ecm-satisfaction',
-  title: 'Questionnaire (4.2)',
-  render: (container) => {
-    const headers = ECM_HEADERS;
-
-    const satRow = (item) => `
-      <tr>
-        <td class="anchor-left">${item.left}</td>
-        ${headers.map(v => `
-          <td class="center">
-            <input
-              type="radio"
-              name="ECM_${item.key}"
-              value="${v}"
-              ${state.answers.ecm?.[`ECM_${item.key}`] === v ? 'checked' : ''}
-              aria-label="${item.key} = ${v}">
-          </td>
-        `).join('')}
-        <td class="anchor-right">${item.right}</td>
-      </tr>
-    `;
-
-    container.innerHTML = `
-      <div class="card">
-        <h1>Questionnaire (4.2)</h1>
-        <p>Next, think about the overall experience of the product you have chosen in the decision-making task, based on the information and features presented. </p>
-        <p>Imagine how you would feel using this product in your daily life.</p>
-        <p>Please rate the following statement on the 7-point semantic differential scales.</p>
-        <p><strong>How do you feel about your overall experience of the chosen product’s use?</strong></p>
-        
-
-        <div id="ecmSatError" class="error" style="display:none;"></div>
-
-        <div class="likert-table-wrapper">
-          <table class="likert-table ecm-s">
-            <thead>
-              <tr>
-                <th style="width:18ch;"></th>
-                ${headers.map(h => `<th>${h}</th>`).join('')}
-                <th style="width:18ch;"></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${ECM_SAT_ITEMS.map(satRow).join('')}
-            </tbody>
-          </table>
         </div>
-      </div>
-    `;
+      `;
 
-    container.addEventListener('change', (e) => {
-      const name = e.target?.name;
-      if (!name || !/^ECM_S\d/.test(name)) return;
-      state.answers.ecm[name] = Number(e.target.value);
-      persist();
-    });
-  },
+      container.addEventListener('change', e => {
+        const name = e.target?.name;
+        if (!name || !/^ECM_S\d/.test(name)) return;
+        state.answers.ecm[name] = Number(e.target.value);
+        persist();
+      });
+    },
 
-  beforeNext: async () => {
-    const err = document.getElementById('ecmSatError');
-    if (err) { err.style.display = 'none'; err.textContent = ''; }
+    beforeNext: async () => {
+      const err = document.getElementById('ecmSatError');
+      if (err) {
+        err.style.display = 'none';
+        err.textContent = '';
+      }
 
-    const requiredKeys = ECM_SAT_ITEMS.map(it => `ECM_${it.key}`);
+      const requiredKeys = ECM_SAT_ITEMS.map(it => `ECM_${it.key}`);
 
-    for (const k of requiredKeys) {
-      const sel = document.querySelector(`input[name="${k}"]:checked`);
-      if (!sel) {
+      for (const k of requiredKeys) {
+        const sel = document.querySelector(`input[name="${k}"]:checked`);
+        if (!sel) {
+          if (err) {
+            err.textContent =
+              'Please answer all satisfaction items before continuing.';
+            err.style.display = 'block';
+          }
+          return false;
+        }
+      }
+
+      const row = { participant_id: state.participant_id };
+      requiredKeys.forEach(k => {
+        row[k] = state.answers.ecm[k];
+      });
+
+      const { error } = await supabase
+        .from('questionnaires')
+        .upsert(row, {
+          onConflict: 'participant_id',
+          returning: 'minimal'
+        });
+
+      if (error) {
+        console.error('ECM SAT upsert error:', error);
         if (err) {
-          err.textContent = 'Please answer all satisfaction items before continuing.';
+          err.textContent = `Save failed: ${
+            error.message || 'Unknown error'
+          }.`;
           err.style.display = 'block';
         }
         return false;
       }
+
+      return true;
     }
+  },
 
-    const row = { participant_id: state.participant_id };
-    requiredKeys.forEach(k => {
-      row[k] = state.answers.ecm[k];
-    });
-
-    const { error } = await supabase
-      .from('questionnaires')
-      .upsert(row, { onConflict: 'participant_id', returning: 'minimal' });
-
-    if (error) {
-      console.error('ECM SAT upsert error:', error);
-      if (err) {
-        err.textContent = `Save failed: ${error.message || 'Unknown error'}.`;
-        err.style.display = 'block';
-      }
-      return false;
-    }
-
-    return true;
-  }
-},
-
-
-
-  /* ----------------------- Demographics --------------- */
+  /* -----------------------------------------------------------------------
+     Demographics
+     ---------------------------------------------------------------------- */
   {
     slug: 'task-4-demo-intro',
     title: 'Demographics — Intro',
-    render: (container) => {
+    render: container => {
       container.innerHTML = `
         <div class="card">
           <div id="demoError" class="error" style="display:none;"></div>
@@ -1515,7 +1792,7 @@ const PAGES = [
         </section>
       `;
 
-      // Enable/disable "Other" inputs
+      // Enable/disable "Other" inputs for education
       const eduOther = $('#demo_education_other');
       $$('#eduGroup input[name="demo_education"]').forEach(r => {
         r.addEventListener('change', () => {
@@ -1525,6 +1802,7 @@ const PAGES = [
         });
       });
 
+      // Enable/disable "Other" inputs for employment
       const empOther = $('#demo_employment_other');
       $$('#empGroup input[name="demo_employment"]').forEach(r => {
         r.addEventListener('change', () => {
@@ -1535,7 +1813,9 @@ const PAGES = [
       });
 
       // Prefill from saved answers
-      if (state.answers.demo.age != null) $('#demo_age').value = state.answers.demo.age;
+      if (state.answers.demo.age != null) {
+        $('#demo_age').value = state.answers.demo.age;
+      }
 
       if (state.answers.demo.gender != null) {
         const g = String(state.answers.demo.gender);
@@ -1547,57 +1827,83 @@ const PAGES = [
         const ec = String(state.answers.demo.education_code);
         const el = $(`input[name="demo_education"][value="${ec}"]`);
         if (el) el.checked = true;
+
         const other = $('#demo_education_other');
-        if (ec === '8') { other.disabled = false; other.value = state.answers.demo.education_other || ''; }
+        if (ec === '8') {
+          other.disabled = false;
+          other.value = state.answers.demo.education_other || '';
+        }
       }
 
       if (state.answers.demo.employment_code != null) {
         const ec = String(state.answers.demo.employment_code);
         const el = $(`input[name="demo_employment"][value="${ec}"]`);
         if (el) el.checked = true;
+
         const other = $('#demo_employment_other');
-        if (ec === '7') { other.disabled = false; other.value = state.answers.demo.employment_other || ''; }
+        if (ec === '7') {
+          other.disabled = false;
+          other.value = state.answers.demo.employment_other || '';
+        }
       }
 
-      // Bind inputs → state
-      $('#demo_age')?.addEventListener('input', (e) => {
+      // Bind age → state
+      $('#demo_age')?.addEventListener('input', e => {
         const v = e.target.value ? Number(e.target.value) : null;
         state.answers.demo.age = Number.isFinite(v) ? v : null;
         persist();
       });
 
-      $$('input[name="demo_gender"]').forEach(r => r.addEventListener('change', (e) => {
-        state.answers.demo.gender = Number(e.target.value);
-        persist();
-      }));
+      // Bind gender → state
+      $$('input[name="demo_gender"]').forEach(r =>
+        r.addEventListener('change', e => {
+          state.answers.demo.gender = Number(e.target.value);
+          persist();
+        })
+      );
 
-      $$('input[name="demo_education"]').forEach(r => r.addEventListener('change', (e) => {
-        const code = Number(e.target.value);
-        state.answers.demo.education_code = code;
-        if (code !== 8) state.answers.demo.education_other = "";
-        persist();
-      }));
-      $('#demo_education_other')?.addEventListener('input', (e) => {
-        state.answers.demo.education_other = e.target.value || "";
+      // Bind education → state
+      $$('input[name="demo_education"]').forEach(r =>
+        r.addEventListener('change', e => {
+          const code = Number(e.target.value);
+          state.answers.demo.education_code = code;
+          if (code !== 8) state.answers.demo.education_other = '';
+          persist();
+        })
+      );
+      $('#demo_education_other')?.addEventListener('input', e => {
+        state.answers.demo.education_other = e.target.value || '';
         persist();
       });
 
-      $$('input[name="demo_employment"]').forEach(r => r.addEventListener('change', (e) => {
-        const code = Number(e.target.value);
-        state.answers.demo.employment_code = code;
-        if (code !== 7) state.answers.demo.employment_other = "";
-        persist();
-      }));
-      $('#demo_employment_other')?.addEventListener('input', (e) => {
-        state.answers.demo.employment_other = e.target.value || "";
+      // Bind employment → state
+      $$('input[name="demo_employment"]').forEach(r =>
+        r.addEventListener('change', e => {
+          const code = Number(e.target.value);
+          state.answers.demo.employment_code = code;
+          if (code !== 7) state.answers.demo.employment_other = '';
+          persist();
+        })
+      );
+      $('#demo_employment_other')?.addEventListener('input', e => {
+        state.answers.demo.employment_other = e.target.value || '';
         persist();
       });
     },
 
     beforeNext: async () => {
       const errBox = $('#demoError');
-      if (errBox) { errBox.style.display = 'none'; errBox.textContent = ''; }
-      const showErr = (msg) => { if (errBox) { errBox.textContent = msg; errBox.style.display = 'block'; } };
+      if (errBox) {
+        errBox.style.display = 'none';
+        errBox.textContent = '';
+      }
+
+      const showErr = msg => {
+        if (errBox) {
+          errBox.textContent = msg;
+          errBox.style.display = 'block';
+        }
+      };
 
       // Age
       const ageVal = $('#demo_age')?.value?.trim();
@@ -1607,34 +1913,49 @@ const PAGES = [
         return false;
       }
 
-      // Gender label
+      // Gender
       const genderSel = $('input[name="demo_gender"]:checked');
-      if (!genderSel) { showErr('What is your gender?'); return false; }
+      if (!genderSel) {
+        showErr('What is your gender?');
+        return false;
+      }
       const gender = GENDER_LABEL[parseInt(genderSel.value, 10)] ?? null;
 
       // Education (label or "Other")
       const eduSel = $('input[name="demo_education"]:checked');
-      if (!eduSel) { showErr('What is your level of education?'); return false; }
+      if (!eduSel) {
+        showErr('What is your level of education?');
+        return false;
+      }
       const eduCode = parseInt(eduSel.value, 10);
       let education = EDUCATION_LABEL[eduCode] ?? null;
       if (eduCode === 8) {
         const otherText = $('#demo_education_other')?.value?.trim();
-        if (!otherText) { showErr('Please specify your education (Other).'); return false; }
+        if (!otherText) {
+          showErr('Please specify your education (Other).');
+          return false;
+        }
         education = otherText;
       }
 
       // Employment (label or "Other")
       const empSel = $('input[name="demo_employment"]:checked');
-      if (!empSel) { showErr('What is your employment status?'); return false; }
+      if (!empSel) {
+        showErr('What is your employment status?');
+        return false;
+      }
       const empCode = parseInt(empSel.value, 10);
       let employment = EMPLOYMENT_LABEL[empCode] ?? null;
       if (empCode === 7) {
         const otherText = $('#demo_employment_other')?.value?.trim();
-        if (!otherText) { showErr('Please specify your employment (Other).'); return false; }
+        if (!otherText) {
+          showErr('Please specify your employment (Other).');
+          return false;
+        }
         employment = otherText;
       }
 
-      // Save to DB
+      // Save demographics to DB
       const row = {
         participant_id: state.participant_id,
         session_id: state.session_id || null,
@@ -1657,11 +1978,13 @@ const PAGES = [
     }
   },
 
-  /* ----------------------- Final page ----------------- */
+  /* -----------------------------------------------------------------------
+     Final Page
+     ---------------------------------------------------------------------- */
   {
     slug: 'final-thanks',
     title: 'End of Study!',
-    render: (container) => {
+    render: container => {
       container.innerHTML = `
         <div class="card" style="max-width:800px;">
           <h1>Thank you for participating!</h1>
@@ -1693,7 +2016,7 @@ const PAGES = [
         </div>
       `;
 
-      // Hide print/close buttons if any global ones are present
+      // Hide global print/close buttons if any others are present
       document.querySelectorAll('button, a').forEach(el => {
         const t = (el.innerText || '').toLowerCase();
         if (/(print|drucken|close|schließen|schliessen)/i.test(t)) {
@@ -1709,8 +2032,13 @@ const PAGES = [
 /* =========================================================================
    9) APP RENDERING & NAVIGATION
    ======================================================================= */
+
 const app = document.getElementById('app');
 
+/**
+ * Ensure there is a session row on the server, created once per session.
+ * Uses the participant row as a foreign key.
+ */
 async function ensureSessionRow() {
   if (loadLS('session_saved')) return;
 
@@ -1723,7 +2051,7 @@ async function ensureSessionRow() {
     participant_id: state.participant_id,
     started_at: state.started_at,
     condition_load: state.condition?.load || null,
-    user_agent: navigator.userAgent,
+    user_agent: navigator.userAgent
   };
 
   let { error } = await supabase
@@ -1741,7 +2069,11 @@ async function ensureSessionRow() {
 
   if (error) {
     console.error('Session upsert error:', error, payload);
-    alert(`Error creating session in Supabase:\n${error.message || 'Unknown error'}\n\nDetails:\n${error.details || ''}`);
+    alert(
+      `Error creating session in Supabase:\n${error.message || 'Unknown error'}\n\nDetails:\n${
+        error.details || ''
+      }`
+    );
     return;
   }
 
@@ -1749,31 +2081,56 @@ async function ensureSessionRow() {
   console.log('Session saved:', payload.session_id);
 }
 
+/**
+ * Render the current page based on state.pageIndex.
+ * Sets up "Continue" and "Back" navigation buttons.
+ */
 async function renderPage() {
   ensureStateShape();
   await ensureSessionRow();
 
-  const page = PAGES[state.pageIndex] || (state.pageIndex = 0, saveLS('exp_state', state), PAGES[0]);
-  const isFirst = state.pageIndex === 0;
-  const isLast  = state.pageIndex === PAGES.length - 1;
+  let page = PAGES[state.pageIndex];
+  if (!page) {
+    // Fallback: reset to first page if index is invalid
+    state.pageIndex = 0;
+    saveLS('exp_state', state);
+    page = PAGES[0];
+  }
 
-  const hideBack = (page.slug === 'task-2' || page.slug === 'task-3-paas' || isLast);
-  const hideContinue = (page.slug === 'task-2' || page.slug === 'task-2-intro');
+  const isFirst = state.pageIndex === 0;
+  const isLast = state.pageIndex === PAGES.length - 1;
+
+  const hideBack =
+    page.slug === 'task-2' ||
+    page.slug === 'task-3-paas' ||
+    isLast;
+
+  const hideContinue =
+    page.slug === 'task-2' ||
+    page.slug === 'task-2-intro';
 
   app.innerHTML = `
     <div id="pageMount"></div>
     <div class="button-row">
-      ${(!hideBack ? `<button id="btnBack" ${isFirst ? 'disabled' : ''}>Go back</button>` : ``)}
-      ${(!isLast && !hideContinue ? `<button id="btnContinue" class="primary">Continue</button>` : ``)}
+      ${
+        !hideBack
+          ? `<button id="btnBack" ${isFirst ? 'disabled' : ''}>Go back</button>`
+          : ``
+      }
+      ${
+        !isLast && !hideContinue
+          ? `<button id="btnContinue" class="primary">Continue</button>`
+          : ``
+      }
     </div>
   `;
 
   const mount = document.getElementById('pageMount');
-  mount.setAttribute('data-slug', page.slug); // <-- add this
+  mount.setAttribute('data-slug', page.slug);
   page.render(mount);
 
-  // Global next
-  window.__doNext = async function() {
+  // Global "next" handler
+  window.__doNext = async function () {
     if (typeof page.beforeNext === 'function') {
       const ok = await page.beforeNext();
       if (!ok) return;
@@ -1783,13 +2140,17 @@ async function renderPage() {
     renderPage();
   };
 
-  // Global back (incl. cleanup if leaving Task 2)
-  window.__goBack = async function() {
+  // Global "back" handler (with cleanup for Task 2)
+  window.__goBack = async function () {
     if (page.slug === 'task-2') {
       if (hoverActive) endHover('end_task');
       await flushHoverEvents();
-      try { await flushMouseEvents('task-2'); } catch {}
-      try { stopMouseTracking(); } catch {}
+      try {
+        await flushMouseEvents('task-2');
+      } catch {}
+      try {
+        stopMouseTracking();
+      } catch {}
     }
     state.pageIndex = Math.max(state.pageIndex - 1, 0);
     saveLS('exp_state', state);
@@ -1803,31 +2164,41 @@ async function renderPage() {
 /* =========================================================================
    10) MOUSE & HOVER TRACKING
    ======================================================================= */
+
+// Mouse tracking state
 let tracking = false;
 let mouseStartEpoch = 0;
 let mouseHandler = null;
 let samplingTimerId = null;
 let lastMouse = { x: null, y: null };
 
+/**
+ * Start sampling mouse positions at ~25 Hz and buffer them in state.mouse_buffer.
+ */
 function startMouseTracking() {
   if (tracking) return;
+
   tracking = true;
   state.task2_started_at = new Date().toISOString();
   mouseStartEpoch = performance.now();
-  lastMouse.x = 0; lastMouse.y = 0; // log first point immediately
+  lastMouse.x = 0;
+  lastMouse.y = 0; // log first point immediately
   state.mouse_buffer = [];
   saveLS('exp_state', state);
 
   const evtCountEl = $('#evtCount');
 
-  mouseHandler = (e) => {
+  mouseHandler = e => {
     lastMouse.x = e.clientX;
     lastMouse.y = e.clientY;
   };
+
   document.addEventListener('mousemove', mouseHandler, { passive: true });
 
+  // Sample mouse positions at fixed interval
   samplingTimerId = setInterval(() => {
     if (lastMouse.x == null || lastMouse.y == null) return;
+
     const t = performance.now() - mouseStartEpoch;
     state.mouse_buffer.push({
       session_id: state.session_id,
@@ -1840,6 +2211,7 @@ function startMouseTracking() {
       page_h: window.innerHeight,
       ts_utc: new Date().toISOString()
     });
+
     if (evtCountEl) evtCountEl.textContent = String(state.mouse_buffer.length);
   }, 40);
 
@@ -1847,6 +2219,9 @@ function startMouseTracking() {
   if (status) status.textContent = 'ON';
 }
 
+/**
+ * Stop mouse tracking and optionally record a last event.
+ */
 function stopMouseTracking() {
   if (!tracking) return;
 
@@ -1879,10 +2254,16 @@ function stopMouseTracking() {
   if (status) status.textContent = 'OFF';
 }
 
+/**
+ * Flush all buffered mouse events to the 'mouse_events' table in Supabase.
+ * Uses chunked inserts to avoid large payloads.
+ */
 async function flushMouseEvents() {
   const buf = state.mouse_buffer || [];
   if (!buf.length) return;
+
   const CHUNK = 1000;
+
   for (let i = 0; i < buf.length; i += CHUNK) {
     const slice = buf.slice(i, i + CHUNK);
     const { error } = await supabase.from('mouse_events').insert(slice);
@@ -1891,35 +2272,49 @@ async function flushMouseEvents() {
       return;
     }
   }
+
   state.mouse_buffer = [];
   saveLS('exp_state', state);
 }
 
 /* --- Hover tracking --- */
-let hoverActive = null;  // { prodId, enterPerf, enterUTC }
+
+let hoverActive = null; // { prodId, enterPerf, enterUTC }
 state.hover_buffer = state.hover_buffer || [];
 
+/**
+ * Mark the start of a hover over a product.
+ */
 function startHover(prodId) {
   const nowPerf = performance.now();
-  const nowUTC  = new Date().toISOString();
-  if (hoverActive && hoverActive.prodId !== prodId) endHover('switch');
+  const nowUTC = new Date().toISOString();
+
+  if (hoverActive && hoverActive.prodId !== prodId) {
+    endHover('switch');
+  }
+
   hoverActive = { prodId, enterPerf: nowPerf, enterUTC: nowUTC };
 }
 
+/**
+ * Mark the end of a hover and push an event into hover_buffer.
+ * reason: 'leave' | 'switch' | 'end_task'
+ */
 function endHover(reason = 'leave') {
   if (!hoverActive) return;
+
   const leavePerf = performance.now();
-  const leaveUTC  = new Date().toISOString();
-  const tEnterMs  = Math.round(hoverActive.enterPerf - mouseStartEpoch);
-  const tLeaveMs  = Math.round(leavePerf - mouseStartEpoch);
-  const duration  = Math.max(0, tLeaveMs - tEnterMs);
+  const leaveUTC = new Date().toISOString();
+  const tEnterMs = Math.round(hoverActive.enterPerf - mouseStartEpoch);
+  const tLeaveMs = Math.round(leavePerf - mouseStartEpoch);
+  const duration = Math.max(0, tLeaveMs - tEnterMs);
 
   state.hover_buffer.push({
     session_id: state.session_id,
     participant_id: state.participant_id,
     task: 'task-2',
     prod_id: hoverActive.prodId,
-    reason,            // 'leave' | 'switch' | 'end_task'
+    reason, // 'leave' | 'switch' | 'end_task'
     t_enter_ms: tEnterMs,
     t_leave_ms: tLeaveMs,
     duration_ms: duration,
@@ -1933,15 +2328,23 @@ function endHover(reason = 'leave') {
   saveLS('exp_state', state);
 }
 
+/**
+ * Flush hover events to the 'mouse_hovers' table in Supabase.
+ */
 async function flushHoverEvents() {
   const buf = state.hover_buffer || [];
   if (!buf.length) return;
+
   const CHUNK = 1000;
   for (let i = 0; i < buf.length; i += CHUNK) {
     const slice = buf.slice(i, i + CHUNK);
     const { error } = await supabase.from('mouse_hovers').insert(slice);
-    if (error) { console.error('mouse_hovers insert error:', error); return; }
+    if (error) {
+      console.error('mouse_hovers insert error:', error);
+      return;
+    }
   }
+
   state.hover_buffer = [];
   saveLS('exp_state', state);
 }
@@ -1949,11 +2352,16 @@ async function flushHoverEvents() {
 /* =========================================================================
    11) BOOTSTRAP
    ======================================================================= */
-(async function bootstrap(){
+
+(async function bootstrap() {
   try {
-    // Connectivity probe
+    // Quick connectivity probe
     const ping = await supabase.from('participants').select('participant_id').limit(1);
-    if (ping.error) throw new Error(`Supabase connectivity failed: ${ping.error.message || ping.error}`);
+    if (ping.error) {
+      throw new Error(
+        `Supabase connectivity failed: ${ping.error.message || ping.error}`
+      );
+    }
 
     const { participant_id } = await ensureParticipant();
     state.participant_id = participant_id;
@@ -1961,18 +2369,22 @@ async function flushHoverEvents() {
 
     await ensureSessionRow();
 
-    // Always start at first page for a new run (only for development and testing)
-    //state.pageIndex = 0;
-    //saveLS('exp_state', state);
+    // For development/testing you could force start at page 0:
+    // state.pageIndex = 0;
+    // saveLS('exp_state', state);
 
     renderPage();
   } catch (e) {
     console.error('Startup failed:', e);
+
     const msg = [
       e?.message || e,
       e?.details ? `Details: ${e.details}` : '',
       e?.hint ? `Hint: ${e.hint}` : ''
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
+
     alert(`Startup failed. Check Supabase setup.\n\n${msg}`);
     document.getElementById('app').innerHTML =
       `<div class="card error">Startup failed. Check console & Supabase setup.</div>`;

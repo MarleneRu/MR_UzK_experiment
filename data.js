@@ -1,9 +1,12 @@
-// Products and attributes per Experiment Structure (trimmed to essentials).
-// Condition rule in the app: Low Load => show 3 attributes; High Load => show 6 attributes.
+/* =========================================================================
+   PRODUCTS
+   ======================================================================= */
+// Conditions: Low Load => show 3 attributes; High Load => show 6 attributes.
 
 export const CATEGORIES_FOR_TASK2 = ["Detergent", "Smartwatch", "Speaker", "Water Bottle","Electric Toothbrush", "Backpacks"]; // "Speaker" = Bluetooth-Speaker list
 
 export const PRODUCTS = {
+  //////////////////////////// DETERGENT ////////////////////////////
   Detergent: [
     {
       id: "det_ariel",
@@ -91,6 +94,7 @@ export const PRODUCTS = {
       ]
     }
   ],
+  //////////////////////////// SMARTWATCHES ////////////////////////////
   Smartwatch: [
     {
       id: "sw_venu4",
@@ -180,6 +184,7 @@ export const PRODUCTS = {
       ]
     }
   ],
+  //////////////////////////// SPEAKERS ////////////////////////////
   Speaker: [
     {
       id: "sp_bose_flex",
@@ -272,7 +277,7 @@ export const PRODUCTS = {
       ]
     }
   ],
-
+  //////////////////////////// WATER BOTTLES ////////////////////////////
   "Water Bottle": [
     {
       id: "wb_24_urban",
@@ -359,7 +364,7 @@ export const PRODUCTS = {
       ]
     }
   ], 
-
+    //////////////////////////// ELECTRIC TOOTHBRUSHES ////////////////////////////
     "Electric Toothbrush": [
     {
       id: "etb_philips_5300",
@@ -455,7 +460,8 @@ export const PRODUCTS = {
       ]
     }
   ],
-  "Backpack" : [
+  //////////////////////////// BACKPACKS ////////////////////////////
+  Backpack : [
   {
     id: "bp_aevor_trip_pack",
     name: "AEVOR Trip Pack",
