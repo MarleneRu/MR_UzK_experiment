@@ -125,7 +125,7 @@ export const PRODUCTS = {
     {
       id: "sw_aw11",
       name: "Apple Watch Series 11",
-      price: "449€",
+      price: "449,00€",
       image: "https://store.storeimages.cdn-apple.com/1/as-images.apple.com/is/MXM23ref_FV99_VW_34FR+watch-case-46-aluminum-jetblack-cell-s11_VW_34FR+watch-face-46-aluminum-jetblack-s11_VW_34FR?wid=752&hei=720&bgc=fafafa&trim=1&fmt=p-jpg&qlt=80&.v=TnVrdDZWRlZzTURKbHFqOGh0dGpVRW5TeWJ6QW43NUFnQ2V4cmRFc1VnYUdWejZ5THhpKzJwRmRDYlhxN2o5aSsxa3lRL0RPQXl4d1oyaFZIWm1QL1F1Z0RaeFB5LzRxZEliRVE2WkswOW5YNUh6UG9VcVpLK2VQampYMHFQR0ZjcUFHc2U4eFMrUHFHdndTN3dIcncxRVpGM0VTYkFEYWkrVUpmdm5HMEsvZzdYL1dmbHI1ck0vS0dDZmJkTUNtcXlYK1hMV0U1ZW9xcCtlRHF3V3gyY2xEQTFSTTlGejVrSXBGN25PbzMrMG9sZHMyTzFzVWNkVE1VWVVod0hOSw",
       attrs: [
         "Purpose: Multifunctional Smartwatch",
@@ -199,7 +199,7 @@ export const PRODUCTS = {
     {
       id: "sp_sonos_era100",
       name: "Sonos Era 100",
-      price: "189€",
+      price: "189,00€",
       image: "https://image.euronics.de/media/image/a1/23/d6/ea4aabf0-4e6d-44a5-8c45-2515d63c6d60.jpg",
       attrs: [
         "Non-portable (no battery, mains powered)",
@@ -258,7 +258,7 @@ export const PRODUCTS = {
     {
       id: "sp_beosound_explore",
       name: "B&O Beosound Explore",
-      price: "299€",
+      price: "299,00€",
       image: "https://images.hifiklubben.com/image/5795f7bb-d360-4cb3-a964-3022f384295e/pdp_e/boexplore.jpg",
       attrs: [
         "Portable",
@@ -277,7 +277,7 @@ export const PRODUCTS = {
     {
       id: "wb_24_urban",
       name: "24 Bottles - Urban Bottle",
-      price: "20€",
+      price: "20,00€",
       image: "https://24bottles.com/cdn/shop/files/146__urban__gravity__1_900x.png?v=1710504354",
       attrs: [
         "Non-insulated, single-wall bottle",
@@ -291,7 +291,7 @@ export const PRODUCTS = {
     {
       id: "wb_24_clima",
       name: "24 Bottles - Clima Bottle",
-      price: "45€",
+      price: "45,00€",
       image: "https://24bottles.com/cdn/shop/files/143__clima__atlantic_bay__1_900x.png?v=1710503068",
       attrs: [
         "Thermal-insulated bottle",
@@ -319,7 +319,7 @@ export const PRODUCTS = {
     {
       id: "wb_spottle_glass",
       name: "Spottle Glass Bottle",
-      price: "20€",
+      price: "20,00€",
       image: "https://www.myspottle.com/cdn/shop/files/glasflasche-schwarz-750ml.webp?v=1713704537&width=700",
       attrs: [
         "Glass bottle",
@@ -348,7 +348,7 @@ export const PRODUCTS = {
       id: "wb_waterdrop_sport",
       name: "Waterdrop All-Purpose Sport Bottle",
       price: "28,90€",
-      image: "https://www.waterdrop.de/cdn/shop/files/All_Purpose_Ultralight_0.8_L_Brand_Green_-_Loop_Lid_Black.png?v=1750144717", 
+      image: "https://www.waterdrop.de/cdn/shop/files/All_Purpose_12_L_Ultralight_black_loop.png?v=1750144717", 
       attrs: [
         "Lightweight single-wall steel bottle",
         "Size: 800 ml",
@@ -459,7 +459,7 @@ export const PRODUCTS = {
   {
     id: "bp_aevor_trip_pack",
     name: "AEVOR Trip Pack",
-    price: "109€",
+    price: "109,00€",
     image: "https://www.aevor.com/cdn/shop/products/AVR-TRW-001-801-AEVOR-Trip-Pack-Proof-Black-02_713x.jpg?v=1759937024", 
     attrs: [
       "Volume: 26–33 L (expandable via roll-top)",
@@ -473,7 +473,7 @@ export const PRODUCTS = {
   {
     id: "bp_db_daypack_17l",
     name: "DB Daypack",
-    price: "129€",
+    price: "129,00€",
     image: "https://dbjourney.com/cdn/shop/files/Daypack_17L_Fogbow_Beige_1000502101501.png?v=1755701243&width=900",
     attrs: [
       "Volume: 17 L",
@@ -501,7 +501,7 @@ export const PRODUCTS = {
   {
     id: "bp_patagonia_black_hole_micro_22l",
     name: "Patagonia Black Hole Micro",
-    price: "150€",
+    price: "150,00€",
     image: "https://eu.patagonia.com/dw/image/v2/BDJB_PRD/on/demandware.static/-/Sites-patagonia-master/default/dw07032160/images/hi-res/49260_BLK.jpg?sw=1920&sh=1920&sfrm=png&q=90&bgcolor=f3f4ef",
     attrs: [
       "Volume: 22 L",
@@ -529,7 +529,7 @@ export const PRODUCTS = {
   {
     id: "bp_tnf_base_camp_fuse_box",
     name: "The North Face Base Camp",
-    price: "145€",
+    price: "145,00€",
     image: "https://assets.thenorthface.eu/images/t_img/f_auto,h_462,e_sharpen:60,w_462/dpr_2.0/v1753206436/NF0A3KVR4HF-HERO/Base-Camp-Fuse-Box.jpg",
     attrs: [
       "Volume: 30 L",
