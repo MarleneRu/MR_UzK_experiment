@@ -836,8 +836,6 @@ const PAGES = [
       toggleGlobalNext(false);
 
       const loadRaw = (state.condition?.load || 'low').toLowerCase();
-      const loadFlag = loadRaw.charAt(0).toUpperCase() + loadRaw.slice(1);
-      const chosenCat = state.assignedCategory || 'Detergent';
 
       container.innerHTML = `
         <div class="card">
@@ -845,12 +843,6 @@ const PAGES = [
           <p>In the following you are presented with a list of products. Additional information on the products can be seen when you hover over the product.</p>
           <p><strong>Task: Imagine you are buying for your <i>weekly use</i>. Please select the product you would add to your cart. You may review as much information as you like before making your decision.</strong></p>
           <hr/>
-          <div class="row">
-            <span class="badge">Condition: ${state.condition?.code || '-'}</span>
-            <span class="badge">Interest: ${state.condition?.interest || '-'}</span>
-            <span class="badge">Load: ${loadFlag}</span>
-            <span class="badge">Category: ${chosenCat}</span>
-          </div>
           <div style="margin-top:20px;">
             <button id="startTask2" class="btn primary">Start Task 2</button>
           </div>
