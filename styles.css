@@ -470,3 +470,25 @@ input[type="radio"], input[type="checkbox"]{ margin-right:6px; }
 .likert-table.ecm-pu-ci input[type="radio"]{
   transform: scale(.9);
 }
+
+/* ============================================================
+   Greater buttons in all questionnaires
+   ============================================================ */
+
+/* Likert-Tables (Task 1, NRQ, PIES, ECM, etc.) */
+.likert-table input[type="radio"]{
+  width: 18px;
+  height: 18px;
+}
+
+/* PAAS (Task 3) */
+#pageMount[data-slug="task-3-paas"] .paas-scale .paas-option input[type="radio"]{
+  width: 18px;
+  height: 18px;
+}
+
+/* Demographics (Task 4) */
+#pageMount[data-slug="task-4-demo-intro"] input[type="radio"]{
+  width: 18px;
+  height: 18px;
+}
