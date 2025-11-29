@@ -863,7 +863,7 @@ const PAGES = [
         <div class="card">
           <h1>Task 2 — Instructions</h1>
           <p>In the following you are presented with a list of products. Additional information on the products can be seen when you hover over the product.</p>
-          <p><strong>Task: Imagine you are buying for your <i>weekly use</i>. Please select the product you would add to your cart. You may review as much information as you like before making your decision.</strong></p>
+          <p><strong>Task: Imagine you are buying for your <i>daily use</i>. Please select the product you would add to your cart. You may review as much information as you like before making your decision.</strong></p>
           <hr/>
           <div style="margin-top:20px;">
             <button id="startTask2" class="btn primary">Start Task 2</button>
@@ -925,7 +925,7 @@ const PAGES = [
       let html = `
         <div class="card">
           <h1>Task 2 - Online Decision Making</h1>
-          <p><strong>Task: Imagine you are buying for your <i>weekly use</i>. Please select the product you would add to your cart.</strong></p>
+          <p><strong>Task: Imagine you are buying for your <i>daily use</i>. Please select the product you would add to your cart.</strong></p>
           <p>Additional information on the products can be seen when you hover over the product. You may review as much information as you like before making your decision.</p>
           <p>Click on the product to select it and finish the task using the “Finish Task 2” button at the bottom.</p>
       `;
