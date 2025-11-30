@@ -591,7 +591,7 @@ const PAGES = [
           <p>The purpose of this experiment is to investigate individuals' behavior in online decision-making. The questions are straightforward and there are no right or wrong answers. I am interested in your honest opinion and thoughts. Your responses are completely anonymous and confidential. The data collected will be used only for research purposes, and no personally identifiable information will be linked to your responses. Your participation is entirely voluntary. You have the right to withdraw from the study at any point without any penalties or consequences.</p>
           <p>If you have any questions about the study or need further information, feel free to contact me (<a href="mailto:mruescho@smail.uni-koeln.de">mruescho@smail.uni-koeln.de</a>).</p>
           <p>The entire experiment will take about 10 minutes and the data collection starts from this page onwards. You must be 18 years or older to participate in this study.</p>
-          <p> Please note that this study can <strong>only</strong> be conducted using a <strong>laptop or desktop computer</strong>. Participation with mobile devices is not possible.</p>
+          <p> Important: This study can <strong>only</strong> be conducted using a <strong>laptop or desktop computer</strong>. Participation with mobile devices is not possible.</p>
           <p><strong>By continuing, you agree to participate in the study.</strong></p>
         </div>
       `;

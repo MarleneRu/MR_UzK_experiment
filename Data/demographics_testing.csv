@@ -1,0 +1,5 @@
+participant_id,session_id,age,gender,education,employment,updated_at
+35e66184-3e42-45f7-bf6a-5d675bcac6da,53052eb5-5f4d-4d76-bf12-47e14aab1366,25,Female,Bachelor's Degree,Working-Student / Temporary,2025-11-28 11:30:55.297531+00
+4b8b5d28-8ca9-4b2d-be09-796cd60ff22f,50cc759c-ea1f-4b6b-bfc0-7c322203f591,26,Male,Bachelor's Degree,Working-Student / Temporary,2025-11-30 13:39:15.490892+00
+51381787-c3a4-4a69-a44d-0750124ee2ad,05764de8-c886-4fe9-bcaf-313de86f3c97,29,Female,Master's Degree,Full-Time,2025-11-29 11:59:47.830507+00
+8e0c9b01-b81c-43c8-bb2f-35742dc5b516,8e2594db-d6db-41b7-b483-e47e26bac394,24,Female,Bachelor's Degree,Working-Student / Temporary,2025-11-30 15:23:40.047473+00

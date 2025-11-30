@@ -1,0 +1,5 @@
+session_id,participant_id,started_at,condition_load,user_agent
+05764de8-c886-4fe9-bcaf-313de86f3c97,51381787-c3a4-4a69-a44d-0750124ee2ad,2025-11-29 11:37:49.576+00,High,"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36"
+50cc759c-ea1f-4b6b-bfc0-7c322203f591,4b8b5d28-8ca9-4b2d-be09-796cd60ff22f,2025-11-30 13:35:56.203+00,High,"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
+53052eb5-5f4d-4d76-bf12-47e14aab1366,35e66184-3e42-45f7-bf6a-5d675bcac6da,2025-11-28 11:25:18.679+00,Low,"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+8e2594db-d6db-41b7-b483-e47e26bac394,8e0c9b01-b81c-43c8-bb2f-35742dc5b516,2025-11-30 15:14:57.721+00,Low,"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0"
